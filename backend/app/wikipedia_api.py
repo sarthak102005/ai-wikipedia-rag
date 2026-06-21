@@ -1,21 +1,50 @@
-import wikipediaapi
+import requests
+from urllib.parse import quote
 
-wiki = wikipediaapi.Wikipedia(
-    language="en",
-    user_agent="AIWikipediaRAG/1.0 (sarthakmakkar60@gmail.com)"
-)
+HEADERS = {
+    "User-Agent": "AIWikipediaRAG/1.0 (sarthakmakkar60@gmail.com)"
+}
 
 
 def search_wikipedia(query: str):
-    page = wiki.page(query)
 
-    if not page.exists():
+    encoded_query = quote(query)
+
+    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded_query}"
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=10
+        )
+
+        print(response.status_code)
+
+        if response.status_code != 200:
+            print(response.text)
+            return {
+                "error": "No article found."
+            }
+
+        data = response.json()
+
+        print(data)
+
         return {
-            "error": "No article found."
+            "title": data.get("title"),
+            "summary": data.get("extract"),
+            "url": data.get("content_urls", {})
+                     .get("desktop", {})
+                     .get("page"),
+            "image": data.get("thumbnail", {})
+                         .get("source")
         }
 
-    return {
-        "title": page.title,
-        "summary": page.summary[:1000],
-        "url": page.fullurl
-    }
+    except Exception as e:
+        print(e)
+
+        return {
+            "error": "Wikipedia request failed."
+        }
