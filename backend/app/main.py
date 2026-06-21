@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.wikipedia_api import search_wikipedia
+
 app = FastAPI()
 
 app.add_middleware(
@@ -19,13 +21,9 @@ class SearchRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {
-        "message": "AI Wikipedia RAG Backend is running!"
-    }
+    return {"message": "AI Wikipedia RAG Backend is running!"}
 
 
 @app.post("/search")
 def search(request: SearchRequest):
-    return {
-        "received_query": request.query
-    }
+    return search_wikipedia(request.query)
