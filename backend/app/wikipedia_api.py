@@ -21,6 +21,7 @@ import requests
 from urllib.parse import quote
 
 from app.article_store import get_article, save_article
+from app.cache import cache
 
 HEADERS = {"User-Agent": "AIWikipediaRAG/1.0 (sarthakmakkar60@gmail.com)"}
 
@@ -94,29 +95,21 @@ def _fetch_full_article(title: str) -> str:
 
 def search_wikipedia(query: str) -> dict:
     """
-    Search Wikipedia with two-level caching.
-
-    Level 1 — In-memory query→title map:
-      If this query (case-insensitive) was resolved before, the title is
-      known immediately. We then check the local article store.
-
-    Level 2 — Local article store:
-      If the article is on disk, the full result is returned instantly
-      without any network requests.
-
-    First-time fetch pipeline (no cache):
-      OpenSearch → REST summary → local store check → full article fetch
-      → save to disk → return result
+    Search Wikipedia with three-level caching:
+    1. In-memory query→title map (bypasses OpenSearch + database check)
+    2. Persistent SQLite query→title map (bypasses OpenSearch network requests across restarts)
+    3. Local article store on disk (bypasses REST summary and body downloads)
     """
 
     normalized = query.strip().lower()
+    db_key = f"search_query::{normalized}"
 
     # ── Level 1: in-memory query cache ─────────────────────────────────────
     if normalized in _query_title_map:
         cached_title = _query_title_map[normalized]
         stored = get_article(cached_title)
         if stored and stored.get("full_content"):
-            print(f"[wikipedia_api] Memory cache hit for '{query}' → '{cached_title}'")
+            print(f"[wikipedia_api] Memory cache hit for '{query}' -> '{cached_title}'")
             result = {
                 "title":        stored["title"],
                 "summary":      stored.get("summary", ""),
@@ -130,13 +123,36 @@ def search_wikipedia(query: str) -> dict:
                 result["original_query"] = query
             return result
 
-    # ── Level 2: OpenSearch title resolution ────────────────────────────────
+    # ── Level 1.5: persistent SQLite query cache ────────────────────────────
+    if db_key in cache:
+        cached_title = cache[db_key]
+        stored = get_article(cached_title)
+        if stored and stored.get("full_content"):
+            print(f"[wikipedia_api] SQLite cache hit for '{query}' -> '{cached_title}'")
+            # Populate in-memory map for even faster future hits in this session
+            _query_title_map[normalized] = cached_title
+            
+            result = {
+                "title":        stored["title"],
+                "summary":      stored.get("summary", ""),
+                "full_content": stored["full_content"],
+                "url":          stored.get("url", ""),
+                "image":        stored.get("image"),
+            }
+            # Re-attach correction banner metadata
+            if cached_title.lower() != normalized:
+                result["corrected_query"] = cached_title
+                result["original_query"] = query
+            return result
+
+    # ── Level 2: OpenSearch title resolution (Network call) ────────────────
     resolved_title, was_corrected = _suggest_title(query)
 
-    # Cache this query→title mapping so future calls skip OpenSearch
+    # Save resolved query mapping in both caches
     _query_title_map[normalized] = resolved_title
+    cache[db_key] = resolved_title
 
-    # ── Level 2: local article store ────────────────────────────────────────
+    # ── Level 3: local article store ────────────────────────────────────────
     stored = get_article(resolved_title)
     if stored and stored.get("full_content"):
         print(f"[wikipedia_api] Disk cache hit for '{resolved_title}'")
@@ -171,8 +187,9 @@ def search_wikipedia(query: str) -> dict:
         data = resp.json()
         title = data.get("title", resolved_title)
 
-        # Update the cache key to the canonical title
+        # Update both cache keys to the canonical title
         _query_title_map[normalized] = title
+        cache[db_key] = title
 
         # Fetch the full article body
         full_content = _fetch_full_article(title) or data.get("extract", "")
