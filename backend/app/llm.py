@@ -13,24 +13,31 @@ client = OpenAI(
 def ask_llm(context: str, question: str):
 
     prompt = f"""
-You are a helpful AI assistant.
+You are a strict Wikipedia-based QA assistant.
 
-Answer ONLY from the context below.
+RULES:
+- Answer ONLY using the provided context
+- If answer is not in context, say: "I couldn't find that information in the article."
+- Do NOT use external knowledge
+- Do NOT guess
+- Be precise and short
 
-If the answer is not present, say:
-"I couldn't find that information in the article."
-
-Context:
+CONTEXT:
 {context}
 
-Question:
+QUESTION:
 {question}
 """
 
     response = client.chat.completions.create(
         model="openrouter/free",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.1
     )
 
     return response.choices[0].message.content
