@@ -342,22 +342,7 @@ function App() {
                   </>
                 )}
 
-                {/* How the AI Answered */}
-                <div className="explanation-section">
-                  <h4 className="explanation-title">How the AI Answered</h4>
-                  <ul className="explanation-list">
-                    <li className="explanation-item done">✓ Split article into {totalChunks} chunks (500 chars, 100 overlap)</li>
-                    <li className="explanation-item done">✓ Generated sentence embeddings via all-MiniLM-L6-v2</li>
-                    <li className="explanation-item done">✓ Loaded FAISS index & retrieved top {retrievedChunks} chunks</li>
-                    <li className="explanation-item done">✓ Filtered chunks below 30% cosine similarity threshold</li>
-                    <li className="explanation-item done">
-                      {cacheHit 
-                        ? "✓ Served answer immediately from SQLite persistent cache" 
-                        : "✓ Sent context to LLM (Llama 3.1) and generated final answer"
-                      }
-                    </li>
-                  </ul>
-                </div>
+
               </div>
             )}
           </div>
