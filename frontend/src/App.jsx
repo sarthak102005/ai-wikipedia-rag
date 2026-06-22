@@ -122,7 +122,15 @@ function App() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="container">
+    <>
+      {/* Background Glows */}
+      <div className="bg-glows">
+        <div className="glow-circle glow-1"></div>
+        <div className="glow-circle glow-2"></div>
+        <div className="glow-circle glow-3"></div>
+      </div>
+
+      <div className="container">
 
       {/* ── Header ── */}
       <div className="header">
@@ -356,6 +364,7 @@ function App() {
         </>
       )}
     </div>
+    </>
   );
 }
 
