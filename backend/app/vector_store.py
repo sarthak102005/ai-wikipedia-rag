@@ -64,6 +64,11 @@ def index_exists(title: str) -> bool:
     return _index_path(title).exists() and _chunks_path(title).exists()
 
 
+def get_total_chunks() -> int:
+    """Return the total number of chunks/vectors in the active index."""
+    return _index.ntotal if _index is not None else 0
+
+
 def load_index(title: str) -> bool:
     """
     Load a persisted FAISS index from disk into memory.
@@ -108,11 +113,9 @@ def build_index(chunks: list[str], embeddings: list, title: str = "") -> None:
             print(f"[vector_store] Could not persist index for '{title}': {e}")
 
 
-def search(query_embedding: list, k: int = 6) -> list[str]:
+def search(query_embedding: list, k: int = 6) -> list[dict]:
     """
-    Return the top-k most relevant chunks above SIMILARITY_THRESHOLD.
-    Returns an empty list if the index is uninitialised or the query
-    matches nothing above the threshold.
+    Return the top-k most relevant chunks above SIMILARITY_THRESHOLD with their scores.
     """
     if _index is None or _index.ntotal == 0:
         return []
@@ -122,9 +125,11 @@ def search(query_embedding: list, k: int = 6) -> list[str]:
 
     scores, indices = _index.search(vector, k)
 
-    results = [
-        _documents[i]
-        for score, i in zip(scores[0], indices[0])
-        if i != -1 and score >= SIMILARITY_THRESHOLD
-    ]
+    results = []
+    for score, i in zip(scores[0], indices[0]):
+        if i != -1 and score >= SIMILARITY_THRESHOLD:
+            results.append({
+                "text": _documents[i],
+                "score": float(score)
+            })
     return results

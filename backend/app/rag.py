@@ -16,10 +16,11 @@ Changes over original:
    with user-friendly error messages instead of crashing the endpoint.
 """
 
+import time
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.embeddings import get_embedding, get_embeddings
-from app.vector_store import build_index, search, index_exists, load_index
+from app.vector_store import build_index, search, index_exists, load_index, get_total_chunks
 from app.llm import ask_llm
 from app.cache import cache
 from app.utils import normalize_cache_key
@@ -37,24 +38,51 @@ def run_rag(article: str, question: str, title: str = "") -> dict:
     """
     Main RAG entry point.
 
-    Args:
-        article:  Full article text (or summary if full is unavailable).
-        question: User's question about the article.
-        title:    Article title used as the FAISS index key on disk.
-
-    Returns:
-        {"answer": str, "sources": list[str]}
+    Returns enriched payload:
+        {
+            "answer": str,
+            "sources": [{"text": str, "score": float}, ...],
+            "total_chunks": int,
+            "retrieved_chunks": int,
+            "cache_hit": bool,
+            "time": str
+        }
     """
+    start_time = time.time()
 
     # Build a stable, collision-resistant cache key
     cache_key = normalize_cache_key(f"{title}::{question}")
 
+    # Check cache hit
     if cache_key in cache:
-        return cache[cache_key]
+        result = cache[cache_key]
+        # Validate schema of cached result
+        sources = result.get("sources", [])
+        has_new_schema = (
+            "total_chunks" in result and
+            isinstance(sources, list) and
+            (len(sources) == 0 or isinstance(sources[0], dict))
+        )
+        if has_new_schema:
+            # Dynamically calculate response time for the cache retrieval
+            elapsed = time.time() - start_time
+            result["cache_hit"] = True
+            result["time"] = f"{elapsed:.3f} s"
+            return result
+        else:
+            print(f"[rag] Incompatible cache format for '{cache_key}'. Rebuilding...")
 
     # Guard against empty article content
     if not article or not article.strip():
-        result = {"answer": "No article content was provided.", "sources": []}
+        elapsed = time.time() - start_time
+        result = {
+            "answer": "No article content was provided.",
+            "sources": [],
+            "total_chunks": 0,
+            "retrieved_chunks": 0,
+            "cache_hit": False,
+            "time": f"{elapsed:.2f} s"
+        }
         cache[cache_key] = result
         return result
 
@@ -70,9 +98,14 @@ def run_rag(article: str, question: str, title: str = "") -> dict:
             chunks = _split_text(article)
 
             if not chunks:
+                elapsed = time.time() - start_time
                 result = {
                     "answer": "The article content is too short to process.",
                     "sources": [],
+                    "total_chunks": 0,
+                    "retrieved_chunks": 0,
+                    "cache_hit": False,
+                    "time": f"{elapsed:.2f} s"
                 }
                 cache[cache_key] = result
                 return result
@@ -82,9 +115,14 @@ def run_rag(article: str, question: str, title: str = "") -> dict:
 
     except Exception as e:
         print(f"[rag] Indexing error: {e}")
+        elapsed = time.time() - start_time
         result = {
             "answer": "Failed to process the article. Please try again.",
             "sources": [],
+            "total_chunks": 0,
+            "retrieved_chunks": 0,
+            "cache_hit": False,
+            "time": f"{elapsed:.2f} s"
         }
         cache[cache_key] = result
         return result
@@ -95,25 +133,47 @@ def run_rag(article: str, question: str, title: str = "") -> dict:
         retrieved = search(query_embedding)
     except Exception as e:
         print(f"[rag] Retrieval error: {e}")
+        elapsed = time.time() - start_time
         result = {
             "answer": "Failed to search the article. Please try again.",
             "sources": [],
+            "total_chunks": get_total_chunks(),
+            "retrieved_chunks": 0,
+            "cache_hit": False,
+            "time": f"{elapsed:.2f} s"
         }
         cache[cache_key] = result
         return result
 
+    total_chunks = get_total_chunks()
+
     if not retrieved:
+        elapsed = time.time() - start_time
         result = {
             "answer": "I couldn't find that information in the article.",
             "sources": [],
+            "total_chunks": total_chunks,
+            "retrieved_chunks": 0,
+            "cache_hit": False,
+            "time": f"{elapsed:.2f} s"
         }
         cache[cache_key] = result
         return result
 
     # ── Generation phase ────────────────────────────────────────────────────
-    context = "\n\n".join(retrieved)
+    # Extract text from the list of similarity-score dicts
+    context_chunks = [item["text"] for item in retrieved]
+    context = "\n\n".join(context_chunks)
     answer = ask_llm(context, question)
 
-    result = {"answer": answer, "sources": retrieved}
+    elapsed = time.time() - start_time
+    result = {
+        "answer": answer,
+        "sources": retrieved,  # list of dicts with text and score
+        "total_chunks": total_chunks,
+        "retrieved_chunks": len(retrieved),
+        "cache_hit": False,
+        "time": f"{elapsed:.2f} s"
+    }
     cache[cache_key] = result
     return result

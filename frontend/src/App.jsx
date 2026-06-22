@@ -14,6 +14,12 @@ function App() {
   const [sources, setSources] = useState([]);
   const [askingAI, setAskingAI] = useState(false);
 
+  // RAG Pipeline Statistics
+  const [totalChunks, setTotalChunks] = useState(0);
+  const [retrievedChunks, setRetrievedChunks] = useState(0);
+  const [cacheHit, setCacheHit] = useState(false);
+  const [responseTime, setResponseTime] = useState("");
+
   // Search history — persisted in localStorage
   const [history, setHistory] = useState(() => {
     try {
@@ -48,6 +54,10 @@ function App() {
     setAiAnswer("");
     setSources([]);
     setAiQuestion("");
+    setTotalChunks(0);
+    setRetrievedChunks(0);
+    setCacheHit(false);
+    setResponseTime("");
 
     try {
       const res = await fetch("http://127.0.0.1:8001/search", {
@@ -81,6 +91,10 @@ function App() {
     setAskingAI(true);
     setAiAnswer("");
     setSources([]);
+    setTotalChunks(0);
+    setRetrievedChunks(0);
+    setCacheHit(false);
+    setResponseTime("");
 
     try {
       const res = await fetch("http://127.0.0.1:8001/ask", {
@@ -95,6 +109,10 @@ function App() {
       const data = await res.json();
       setAiAnswer(data.answer || "No answer returned.");
       setSources(data.sources || []);
+      setTotalChunks(data.total_chunks || 0);
+      setRetrievedChunks(data.retrieved_chunks || 0);
+      setCacheHit(!!data.cache_hit);
+      setResponseTime(data.time || "");
     } catch {
       setAiAnswer("Failed to connect to the AI service.");
     }
@@ -161,7 +179,23 @@ function App() {
 
       {/* ── Error ── */}
       {result?.error && (
-        <div className="error-message">⚠️ {result.error}</div>
+        result.error.includes("No Wikipedia article found") ? (
+          <div className="not-found-card">
+            <div className="not-found-icon">🔍</div>
+            <h3 className="not-found-title">Topic Not Found</h3>
+            <p className="not-found-text">{result.error}</p>
+            <div className="search-tips">
+              <strong>Search Tips:</strong>
+              <ul>
+                <li>Double check spelling (though we auto-correct most typos!).</li>
+                <li>Try broader terms instead of complete question queries.</li>
+                <li>Make sure you use English Wikipedia terms.</li>
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <div className="error-message">⚠️ {result.error}</div>
+        )
       )}
 
       {/* ── Results ── */}
@@ -251,6 +285,28 @@ function App() {
             {/* Answer + Sources */}
             {aiAnswer && (
               <div className="ai-answer">
+                {/* Statistics Panel */}
+                <div className="stats-panel">
+                  <div className="stats-card">
+                    <span className="stats-val">{totalChunks}</span>
+                    <span className="stats-lbl">Chunks Created</span>
+                  </div>
+                  <div className="stats-card">
+                    <span className="stats-val">{retrievedChunks}</span>
+                    <span className="stats-lbl">Retrieved</span>
+                  </div>
+                  <div className="stats-card">
+                    <span className={`badge ${cacheHit ? "cache-hit" : "cache-miss"}`}>
+                      {cacheHit ? "🟢 Cache HIT" : "🔵 Fresh Gen"}
+                    </span>
+                    <span className="stats-lbl">Cache Status</span>
+                  </div>
+                  <div className="stats-card">
+                    <span className="stats-val time-val">⚡ {responseTime}</span>
+                    <span className="stats-lbl">Response Time</span>
+                  </div>
+                </div>
+
                 <div className="answer-header">
                   <span className="answer-label">✦ AI Answer</span>
                 </div>
@@ -266,11 +322,34 @@ function App() {
                     </div>
                     <div className="sources-list">
                       {sources.map((src, i) => (
-                        <div key={i} className="source-card">{src}</div>
+                        <div key={i} className="source-card">
+                          <div className="source-card-header">
+                            <span className="source-index">Source {i + 1}</span>
+                            <span className="source-score">Similarity: {Math.round(src.score * 100)}%</span>
+                          </div>
+                          <div className="source-text">{src.text}</div>
+                        </div>
                       ))}
                     </div>
                   </>
                 )}
+
+                {/* How the AI Answered */}
+                <div className="explanation-section">
+                  <h4 className="explanation-title">How the AI Answered</h4>
+                  <ul className="explanation-list">
+                    <li className="explanation-item done">✓ Split article into {totalChunks} chunks (500 chars, 100 overlap)</li>
+                    <li className="explanation-item done">✓ Generated sentence embeddings via all-MiniLM-L6-v2</li>
+                    <li className="explanation-item done">✓ Loaded FAISS index & retrieved top {retrievedChunks} chunks</li>
+                    <li className="explanation-item done">✓ Filtered chunks below 30% cosine similarity threshold</li>
+                    <li className="explanation-item done">
+                      {cacheHit 
+                        ? "✓ Served answer immediately from SQLite persistent cache" 
+                        : "✓ Sent context to LLM (Llama 3.1) and generated final answer"
+                      }
+                    </li>
+                  </ul>
+                </div>
               </div>
             )}
           </div>

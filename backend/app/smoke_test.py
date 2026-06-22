@@ -56,8 +56,16 @@ try:
     ans = rag_res.get("answer", "")
     enc = sys.stdout.encoding or "ascii"
     print("   RAG answer:", ans.encode(enc, errors="replace").decode(enc))
-    print("   Sources count:", len(rag_res.get("sources", [])))
-    assert len(rag_res.get("sources", [])) > 0
+    print("   Response time:", rag_res.get("time"))
+    print("   Cache hit:", rag_res.get("cache_hit"))
+    print("   Total chunks:", rag_res.get("total_chunks"))
+    print("   Retrieved chunks:", rag_res.get("retrieved_chunks"))
+    sources = rag_res.get("sources", [])
+    print("   Sources count:", len(sources))
+    assert len(sources) > 0
+    assert "text" in sources[0]
+    assert "score" in sources[0]
+    assert isinstance(sources[0]["score"], float)
     print("   RAG run OK")
 except Exception as e:
     print(f"   RAG run failed: {e}")
