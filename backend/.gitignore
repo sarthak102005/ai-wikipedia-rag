@@ -1,0 +1,22 @@
+# env file (VERY IMPORTANT)
+.env
+
+# python cache
+__pycache__/
+*.pyc
+
+# virtual environment
+venv/
+.venv/
+
+# logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# node (frontend)
+node_modules/
+dist/
+build
