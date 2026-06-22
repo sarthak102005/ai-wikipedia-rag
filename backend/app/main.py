@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from app.wikipedia_api import search_wikipedia
 from app.rag import run_rag
 
-app = FastAPI()
+app = FastAPI(title="AI Wikipedia RAG", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,33 +16,34 @@ app.add_middleware(
 )
 
 
-# ---------------- REQUEST MODELS ----------------
+# ─────────────────────────────────────────
+# Request models
+# ─────────────────────────────────────────
+
 class SearchRequest(BaseModel):
     query: str
 
 
 class AskRequest(BaseModel):
-    article: str
+    article: str       # Full article text (preferred) or summary
     question: str
+    title: str = ""    # Article title — used as FAISS index key on disk
 
 
-# ---------------- ROOT ----------------
+# ─────────────────────────────────────────
+# Endpoints
+# ─────────────────────────────────────────
+
 @app.get("/")
 def home():
-    return {"message": "AI Wikipedia RAG Backend is running!"}
+    return {"message": "AI Wikipedia RAG Backend is running!", "version": "2.0.0"}
 
 
-# ---------------- WIKIPEDIA SEARCH ----------------
 @app.post("/search")
 def search(request: SearchRequest):
     return search_wikipedia(request.query)
 
 
-# ---------------- RAG ASK ----------------
 @app.post("/ask")
 def ask(request: AskRequest):
-
-    return run_rag(
-        request.article,
-        request.question
-    )
+    return run_rag(request.article, request.question, request.title)
