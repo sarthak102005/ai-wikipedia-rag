@@ -29,8 +29,7 @@ ai-wikipedia-rag/
 │   │   ├── 📄 llm.py               ← LLM interface (Groq primary + OpenRouter fallback)
 │   │   ├── 📄 cache.py             ← SQLite-backed persistent cache
 │   │   ├── 📄 article_store.py     ← Per-article JSON file persistence
-│   │   ├── 📄 utils.py             ← Cache key normalization utility
-│   │   └── 📄 smoke_test.py        ← Integration tests (no HTTP server needed)
+│   │   └── 📄 utils.py             ← Cache key normalization utility
 │   │
 │   └── 🗂️ data/                    ← Auto-generated at runtime (gitignored)
 │       ├── 📄 cache.db             ← SQLite database for query→title + Q&A answer cache
@@ -94,7 +93,6 @@ ai-wikipedia-rag/
 | `backend/app/cache.py` | 77 | SQLite cache |
 | `backend/app/article_store.py` | 50 | Article JSON storage |
 | `backend/app/utils.py` | 29 | Cache key normalizer |
-| `backend/app/smoke_test.py` | 75 | Integration tests |
 
 ### Frontend Core Files
 

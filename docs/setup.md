@@ -15,7 +15,6 @@ This guide walks you through setting up the AI Wikipedia RAG project from scratc
 - [Step 6 — Run the Frontend](#step-6--run-the-frontend)
 - [Step 7 — Verify Installation](#step-7--verify-installation)
 - [Environment Variables Reference](#environment-variables-reference)
-- [Running Smoke Tests](#running-smoke-tests)
 - [Troubleshooting](#troubleshooting)
 - [Updating Dependencies](#updating-dependencies)
 
@@ -244,37 +243,6 @@ The system gracefully handles missing keys:
 - If neither is set → every `/ask` request returns a connection error
 
 ---
-
-## Running Smoke Tests
-
-After completing setup, run the integration test suite to verify all components work:
-
-```bash
-# From the project root (with .venv activated)
-cd backend
-python -m app.smoke_test
-```
-
-**Expected output:**
-```
-=== 1. Imports ===          All imports OK
-=== 2. Cache (SQLite) ===
-   Read/write OK
-=== 3. normalize_cache_key ===
-   normalize_cache_key OK
-=== 4. Wikipedia search ===
-   'virat kholi' -> 'Virat Kohli' (corrected: Virat Kohli)
-   full_content: 87423 chars  [OK]
-=== 5. RAG ===
-   RAG answer: Virat Kohli is an Indian international cricketer...
-   Response time: 2.34 s
-   Cache hit: False
-   Total chunks: 42
-   Retrieved chunks: 4
-   Sources count: 4
-   RAG run OK
-=== ALL TESTS PASSED ===
-```
 
 ---
 

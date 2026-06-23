@@ -261,8 +261,7 @@ ai-wikipedia-rag/
 │   │   ├── 📄 llm.py               ← Groq + OpenRouter LLM interface
 │   │   ├── 📄 cache.py             ← SQLite-backed persistent cache
 │   │   ├── 📄 article_store.py     ← JSON article persistence layer
-│   │   ├── 📄 utils.py             ← Cache key normalizer
-│   │   └── 📄 smoke_test.py        ← Integration tests
+│   │   └── 📄 utils.py             ← Cache key normalizer
 │   │
 │   └── 🗂️ data/                    ← Auto-created at runtime
 │       ├── 📄 cache.db             ← SQLite cache database
@@ -358,13 +357,6 @@ npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173) in your browser. 🎉
-
-### 6. Run Smoke Tests (Optional)
-
-```bash
-cd backend
-python -m app.smoke_test
-```
 
 ---
 

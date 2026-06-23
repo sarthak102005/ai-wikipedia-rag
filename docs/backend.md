@@ -16,7 +16,6 @@ This document provides a detailed breakdown of every Python module in the backen
 - [cache.py](#cachepy)
 - [article_store.py](#article_storepy)
 - [utils.py](#utilspy)
-- [smoke_test.py](#smoke_testpy)
 - [Dependency Graph](#dependency-graph)
 
 ---
@@ -34,11 +33,6 @@ backend/app/
 ├── cache.py          ← SQLite-backed persistent key-value cache
 ├── article_store.py  ← Per-article JSON persistence layer
 └── utils.py          ← Cache key normalizer utility
-```
-
----
-
-## `main.py`
 
 **Purpose:** The application entry point. Defines the FastAPI app, configures CORS middleware, and declares the three API endpoints.
 
@@ -465,48 +459,6 @@ Without normalization, these three questions would generate three separate cache
 After normalization, all three become `"when was virat kohli born"` and share one cache entry.
 
 > ⚠️ This function is **only for cache keys**. It must never be used to modify queries sent to Wikipedia's API — the Wikipedia API needs proper casing to resolve correct article titles.
-
----
-
-## `smoke_test.py`
-
-**Purpose:** An integration test script that validates the entire system end-to-end without starting the HTTP server.
-
-### Tests Performed
-
-1. **Import test** — All modules import without errors
-2. **Cache R/W** — SQLite cache reads and writes correctly
-3. **Cache key normalization** — `"  Virat   Kohli  "` → `"virat kohli"`
-4. **Wikipedia search** — Typo correction: `"virat kholi"` → `"Virat Kohli"` + full content >1000 chars
-5. **RAG pipeline** — Full run: article → chunks → embeddings → retrieval → LLM answer + sources + stats
-
-### Running the Tests
-
-```bash
-cd backend
-python -m app.smoke_test
-```
-
-Expected output:
-```
-=== 1. Imports ===          All imports OK
-=== 2. Cache (SQLite) ===
-   Read/write OK
-=== 3. normalize_cache_key ===
-   normalize_cache_key OK
-=== 4. Wikipedia search ===
-   'virat kholi' -> 'Virat Kohli' (corrected: Virat Kohli)
-   full_content: 87423 chars  [OK]
-=== 5. RAG ===
-   RAG answer: Virat Kohli is an Indian international cricketer...
-   Response time: 2.34 s
-   Cache hit: False
-   Total chunks: 42
-   Retrieved chunks: 4
-   Sources count: 4
-   RAG run OK
-=== ALL TESTS PASSED ===
-```
 
 ---
 
