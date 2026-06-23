@@ -212,6 +212,7 @@ export default function App() {
           question: aiQuestion,
           title:    result.title || "",
           images,                   // pass all page images for semantic matching
+          tables,                   // pass parsed tables for structured indexing
         }),
       });
       const data = await res.json();

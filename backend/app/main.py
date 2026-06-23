@@ -35,6 +35,7 @@ class AskRequest(BaseModel):
     question: str
     title:    str = ""          # Article title — used as FAISS index key
     images:   list[Any] = []   # All page images — for semantic matching
+    tables:   list[Any] = []   # Parsed Wikipedia tables — for structured indexing
 
 
 # ─────────────────────────────────────────
@@ -43,7 +44,7 @@ class AskRequest(BaseModel):
 
 @app.get("/")
 def home():
-    return {"message": "AI Wikipedia RAG Backend is running!", "version": "3.0.0"}
+    return {"message": "AI Wikipedia RAG Backend is running!", "version": "4.0.0"}
 
 
 @app.post("/search")
@@ -53,4 +54,4 @@ def search(request: SearchRequest):
 
 @app.post("/ask")
 def ask(request: AskRequest):
-    return run_rag(request.article, request.question, request.title, request.images)
+    return run_rag(request.article, request.question, request.title, request.images, request.tables)
