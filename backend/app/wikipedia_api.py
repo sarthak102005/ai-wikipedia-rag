@@ -18,13 +18,65 @@ import re
 import requests
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from html.parser import HTMLParser
+
+
+class WikiSummaryParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.segments = []
+        self.current_link = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            attrs_dict = dict(attrs)
+            title = attrs_dict.get("title")
+            if not title:
+                href = attrs_dict.get("href", "")
+                if href.startswith("./"):
+                    title = href[2:].replace("_", " ")
+            if title:
+                self.current_link = title
+
+    def handle_endtag(self, tag):
+        if tag == "a":
+            self.current_link = None
+
+    def handle_data(self, data):
+        if not data:
+            return
+        if self.current_link:
+            self.segments.append({
+                "text": data,
+                "link": self.current_link
+            })
+        else:
+            if self.segments and "link" not in self.segments[-1]:
+                self.segments[-1]["text"] += data
+            else:
+                self.segments.append({
+                    "text": data
+                })
+
+
+def parse_summary_segments(extract_html: str) -> list[dict]:
+    """Parse Wikipedia summary HTML into plain text and hyperlink segments."""
+    if not extract_html:
+        return []
+    try:
+        parser = WikiSummaryParser()
+        parser.feed(extract_html)
+        return parser.segments
+    except Exception as e:
+        print(f"[wikipedia_api] Error parsing summary segments: {e}")
+        return []
 
 try:
-    import wikitextparser as wtp
-    HAS_WTP = True
+    from bs4 import BeautifulSoup
+    HAS_BS4 = True
 except ImportError:
-    HAS_WTP = False
-    print("[wikipedia_api] wikitextparser not installed — table parsing disabled")
+    HAS_BS4 = False
+    print("[wikipedia_api] beautifulsoup4 not installed — table parsing disabled")
 
 from app.article_store import get_article, save_article
 from app.cache import cache
@@ -216,78 +268,76 @@ def _fetch_all_images(title: str) -> list[dict]:
 
 def _fetch_tables(title: str) -> list[dict]:
     """
-    Parse all tables from the raw wikitext using wikitextparser.
+    Parse all tables from the rendered HTML using BeautifulSoup.
     Returns list of {caption, headers, rows} dicts.
     """
-    if not HAS_WTP:
+    if not HAS_BS4:
         return []
 
     url = "https://en.wikipedia.org/w/api.php"
     try:
         resp = requests.get(url, params={
-            "action": "query",
-            "prop": "revisions",
-            "titles": title,
-            "rvprop": "content",
-            "rvslots": "main",
+            "action": "parse",
+            "page": title,
+            "prop": "text",
             "format": "json",
             "redirects": 1,
         }, headers=HEADERS, timeout=25)
 
-        pages = resp.json().get("query", {}).get("pages", {})
-        wikitext = ""
-        for page in pages.values():
-            revisions = page.get("revisions", [])
-            if revisions:
-                slot = revisions[0].get("slots", {}).get("main", {})
-                wikitext = slot.get("*", "")
-                break
-
-        if not wikitext:
+        if resp.status_code != 200:
             return []
 
-        parsed = wtp.parse(wikitext)
-        tables: list[dict] = []
+        html_content = resp.json().get("parse", {}).get("text", {}).get("*", "")
+        if not html_content:
+            return []
 
-        for table in parsed.tables:
-            try:
-                # span=True handles colspan/rowspan by duplicating cells
-                data = table.data(span=True)
-                if not data or len(data) < 2:
-                    continue  # Skip empty or header-only tables
+        soup = BeautifulSoup(html_content, "html.parser")
+        tables_list = []
 
-                caption_raw = table.caption or ""
-                caption = _clean_wikitext(caption_raw)
-
-                # First row as headers
-                headers = [_clean_wikitext(str(c)) if c is not None else "" for c in data[0]]
-                rows = [
-                    [_clean_wikitext(str(c)) if c is not None else "" for c in row]
-                    for row in data[1:]
-                ]
-
-                # Skip tables where all headers and first-row cells are empty
-                if not any(h for h in headers) and not any(c for row in rows for c in row):
-                    continue
-
-                # Skip very large tables (> 50 rows) — likely navboxes
-                if len(rows) > 50:
-                    continue
-
-                tables.append({
-                    "caption": caption,
-                    "headers": headers,
-                    "rows": rows,
-                })
-
-            except Exception as te:
-                print(f"[wikipedia_api] Table parse error: {te}")
+        # Find all table elements
+        for table in soup.find_all("table"):
+            # Skip tables with 'navbox' or 'vertical-navbox' in class (likely navigation footers)
+            classes = table.get("class", [])
+            is_navbox = any("navbox" in str(c).lower() for c in classes)
+            if is_navbox:
                 continue
 
-        return tables
+            caption_tag = table.find("caption")
+            caption = caption_tag.text.strip() if caption_tag else ""
+
+            # Extract rows
+            rows_data = []
+            for tr in table.find_all("tr"):
+                cells = [cell.text.strip().replace("\xa0", " ").replace("\u2013", "-") for cell in tr.find_all(["th", "td"])]
+                # Filter out empty or whitespace-only cells
+                if cells:
+                    rows_data.append(cells)
+
+            if not rows_data:
+                continue
+
+            # Skip very small or empty tables
+            if len(rows_data) < 2:
+                continue
+
+            # First row as headers, subsequent rows as data rows
+            headers = rows_data[0]
+            rows = rows_data[1:]
+
+            # Skip huge tables (e.g., > 100 rows) as they are likely long lists of references/records
+            if len(rows) > 100:
+                continue
+
+            tables_list.append({
+                "caption": caption,
+                "headers": headers,
+                "rows": rows,
+            })
+
+        return tables_list
 
     except Exception as e:
-        print(f"[wikipedia_api] Table fetch failed: {e}")
+        print(f"[wikipedia_api] Table fetch/parse failed: {e}")
         return []
 
 
@@ -295,10 +345,10 @@ def _fetch_tables(title: str) -> list[dict]:
 # NEW: Internal link descriptions
 # ─────────────────────────────────────────
 
-def _fetch_link_descriptions(title: str) -> dict[str, str]:
+def _fetch_link_descriptions(title: str, summary_links: list[str] = None) -> dict[str, dict]:
     """
-    Fetch short descriptions for all internal Wikipedia links on the page.
-    Returns {link_title: description_string}
+    Fetch short descriptions and thumbnails for internal Wikipedia links on the page.
+    Returns {link_title: {"description": desc, "thumbnail": thumb_url}}
     """
     url = "https://en.wikipedia.org/w/api.php"
     try:
@@ -307,7 +357,7 @@ def _fetch_link_descriptions(title: str) -> dict[str, str]:
             "action": "query",
             "prop": "links",
             "titles": title,
-            "pllimit": 60,
+            "pllimit": 80,
             "plnamespace": 0,
             "format": "json",
             "redirects": 1,
@@ -319,18 +369,34 @@ def _fetch_link_descriptions(title: str) -> dict[str, str]:
             for link in page.get("links", []):
                 link_titles.append(link["title"])
 
+        # Prioritize summary links first
+        if summary_links:
+            seen = set()
+            combined = []
+            for sl in summary_links:
+                if sl not in seen:
+                    combined.append(sl)
+                    seen.add(sl)
+            for lt in link_titles:
+                if lt not in seen:
+                    combined.append(lt)
+                    seen.add(lt)
+            link_titles = combined
+
         if not link_titles:
             return {}
 
-        link_titles = link_titles[:50]  # cap at 50
+        link_titles = link_titles[:60]  # cap at 60 links
 
-        # Step 2 — batch-fetch descriptions (20 per request)
-        descriptions: dict[str, str] = {}
+        # Step 2 — batch-fetch descriptions and thumbnails (20 per request)
+        descriptions: dict[str, dict] = {}
         for i in range(0, len(link_titles), 20):
             batch = link_titles[i : i + 20]
             resp2 = requests.get(url, params={
                 "action": "query",
-                "prop": "description",
+                "prop": "description|pageimages",
+                "piprop": "thumbnail",
+                "pithumbsize": 160,
                 "titles": "|".join(batch),
                 "format": "json",
             }, headers=HEADERS, timeout=15)
@@ -339,8 +405,12 @@ def _fetch_link_descriptions(title: str) -> dict[str, str]:
             for page in pages2.values():
                 t = page.get("title", "")
                 desc = page.get("description", "")
-                if t and desc:
-                    descriptions[t] = desc
+                thumb = page.get("thumbnail", {}).get("source")
+                if t and (desc or thumb):
+                    descriptions[t] = {
+                        "description": desc or "No description available",
+                        "thumbnail": thumb
+                    }
 
         return descriptions
 
@@ -349,30 +419,137 @@ def _fetch_link_descriptions(title: str) -> dict[str, str]:
         return {}
 
 
-# ─────────────────────────────────────────
-# Cache enrichment helper
-# ─────────────────────────────────────────
+def _fetch_disambiguation_options(title: str) -> list[dict]:
+    """Fetch all link choices on a disambiguation page along with their descriptions."""
+    url = "https://en.wikipedia.org/w/api.php"
+    try:
+        resp = requests.get(url, params={
+            "action": "query",
+            "prop": "links",
+            "titles": title,
+            "pllimit": 150,
+            "plnamespace": 0,
+            "format": "json",
+            "redirects": 1,
+        }, headers=HEADERS, timeout=12)
+        
+        pages = resp.json().get("query", {}).get("pages", {})
+        link_titles = []
+        for page in pages.values():
+            for link in page.get("links", []):
+                link_titles.append(link["title"])
+                
+        if not link_titles:
+            return []
+            
+        options = []
+        meta_keywords = {"disambiguation", "wikidata", "list of", "webarchived", "wikipedia:", "template:", "category:"}
+        filtered_titles = [lt for lt in link_titles if not any(kw in lt.lower() for kw in meta_keywords)]
+        
+        # Batch-fetch descriptions (50 per request)
+        for i in range(0, len(filtered_titles), 50):
+            batch = filtered_titles[i : i + 50]
+            resp2 = requests.get(url, params={
+                "action": "query",
+                "prop": "description",
+                "titles": "|".join(batch),
+                "format": "json",
+            }, headers=HEADERS, timeout=15)
+            
+            pages2 = resp2.json().get("query", {}).get("pages", {})
+            for page in pages2.values():
+                t = page.get("title", "")
+                desc = page.get("description", "")
+                if t:
+                    options.append({
+                        "title": t,
+                        "description": desc or "No description available"
+                    })
+        return options
+    except Exception as e:
+        print(f"[wikipedia_api] Failed to fetch disambiguation options: {e}")
+        return []
+
+
+def _append_tables_to_content(full_content: str, tables: list[dict]) -> str:
+    """Format and append tables as Markdown to the full content for RAG indexing."""
+    if not tables:
+        return full_content
+
+    tables_header = "\n\n== Tables and Statistics ==\n\n"
+    if tables_header in full_content:
+        # Already appended
+        return full_content
+
+    table_md_blocks = []
+    for t in tables:
+        caption = t.get("caption", "").strip()
+        headers = t.get("headers", [])
+        rows = t.get("rows", [])
+
+        md_lines = []
+        if caption:
+            md_lines.append(f"### Table: {caption}")
+        if headers:
+            md_lines.append("| " + " | ".join(headers) + " |")
+            md_lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+        for row in rows:
+            md_lines.append("| " + " | ".join(row) + " |")
+
+        table_md_blocks.append("\n".join(md_lines))
+
+    if table_md_blocks:
+        return full_content + tables_header + "\n\n".join(table_md_blocks)
+    return full_content
+
 
 def _enrich_stored(title: str, stored: dict) -> dict:
     """
     Add any new fields (images, tables, link_descriptions) missing from
     old cached articles. Fetches missing fields in parallel and re-saves.
     """
+    if stored.get("is_disambiguation"):
+        return stored
+
+    # 1. Fetch missing summary html and segments
+    if "summary_segments" not in stored or "extract_html" not in stored:
+        try:
+            encoded = quote(title)
+            summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
+            resp = requests.get(summary_url, headers=HEADERS, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                stored["extract_html"] = data.get("extract_html", "")
+                stored["summary_segments"] = parse_summary_segments(stored["extract_html"])
+        except Exception as e:
+            print(f"[wikipedia_api] Failed to enrich summary_segments for {title}: {e}")
+
+    # 2. Check for missing or old format link descriptions (values are string instead of dict)
+    has_old_descriptions = False
+    if "link_descriptions" in stored and stored["link_descriptions"]:
+        first_val = next(iter(stored["link_descriptions"].values()))
+        if isinstance(first_val, str):
+            has_old_descriptions = True
+
     missing = []
     if "images" not in stored:
         missing.append("images")
     if "tables" not in stored:
         missing.append("tables")
-    if "link_descriptions" not in stored:
+    if "link_descriptions" not in stored or has_old_descriptions:
         missing.append("link_descriptions")
 
     if not missing:
         return stored
 
+    summary_links = []
+    if "summary_segments" in stored:
+        summary_links = [seg["link"] for seg in stored["summary_segments"] if "link" in seg]
+
     fetchers = {
         "images": lambda: _fetch_all_images(title),
         "tables": lambda: _fetch_tables(title),
-        "link_descriptions": lambda: _fetch_link_descriptions(title),
+        "link_descriptions": lambda: _fetch_link_descriptions(title, summary_links),
     }
 
     with ThreadPoolExecutor(max_workers=3) as ex:
@@ -385,22 +562,77 @@ def _enrich_stored(title: str, stored: dict) -> dict:
                 print(f"[wikipedia_api] Enrichment failed for {key}: {e}")
                 stored[key] = [] if key != "link_descriptions" else {}
 
+    # Append tables to full_content if tables are present (e.g. after enrichment or from cache)
+    if stored.get("tables"):
+        stored["full_content"] = _append_tables_to_content(stored.get("full_content", ""), stored["tables"])
+
     save_article(title, stored)
     return stored
 
 
+def build_segments_from_descriptions(summary: str, link_keys: list[str]) -> list[dict]:
+    """Dynamically segment a summary by finding exact occurrences of key link topics."""
+    if not summary or not link_keys:
+        return [{"text": summary}] if summary else []
+        
+    sorted_keys = sorted(link_keys, key=len, reverse=True)
+    escaped_keys = [re.escape(k) for k in sorted_keys if len(k) > 2]
+    if not escaped_keys:
+        return [{"text": summary}]
+        
+    pattern = r'\b(' + '|'.join(escaped_keys) + r')\b'
+    
+    segments = []
+    last_end = 0
+    for m in re.finditer(pattern, summary, re.IGNORECASE):
+        start, end = m.span()
+        if start > last_end:
+            segments.append({"text": summary[last_end:start]})
+            
+        matched_text = summary[start:end]
+        canonical_key = next((k for k in sorted_keys if k.lower() == matched_text.lower()), matched_text)
+        
+        segments.append({
+            "text": matched_text,
+            "link": canonical_key
+        })
+        last_end = end
+        
+    if last_end < len(summary):
+        segments.append({"text": summary[last_end:]})
+        
+    return segments
+
+
 def _build_result(stored: dict, was_corrected: bool, resolved_title: str, query: str) -> dict:
     """Build the standard result dict from a stored article."""
-    result = {
-        "title":             stored["title"],
-        "summary":           stored.get("summary", ""),
-        "full_content":      stored["full_content"],
-        "url":               stored.get("url", ""),
-        "image":             stored.get("image"),
-        "images":            stored.get("images", []),
-        "tables":            stored.get("tables", []),
-        "link_descriptions": stored.get("link_descriptions", {}),
-    }
+    if stored.get("is_disambiguation"):
+        result = {
+            "is_disambiguation": True,
+            "title":             stored["title"],
+            "summary":           stored.get("summary", ""),
+            "options":           stored.get("options", []),
+            "url":               stored.get("url", ""),
+        }
+    else:
+        summary_text = stored.get("summary", "")
+        link_descs = stored.get("link_descriptions", {})
+        
+        # Build segments dynamically using descriptions
+        summary_segments = build_segments_from_descriptions(summary_text, list(link_descs.keys()))
+        
+        result = {
+            "title":             stored["title"],
+            "summary":           summary_text,
+            "extract_html":      stored.get("extract_html", ""),
+            "summary_segments":  summary_segments,
+            "full_content":      stored["full_content"],
+            "url":               stored.get("url", ""),
+            "image":             stored.get("image"),
+            "images":            stored.get("images", []),
+            "tables":            stored.get("tables", []),
+            "link_descriptions": link_descs,
+        }
     if was_corrected:
         result["corrected_query"] = resolved_title
         result["original_query"]  = query
@@ -424,8 +656,8 @@ def search_wikipedia(query: str) -> dict:
     if normalized in _query_title_map:
         cached_title = _query_title_map[normalized]
         stored = get_article(cached_title)
-        if stored and stored.get("full_content"):
-            print(f"[wikipedia_api] Memory cache hit: '{query}' → '{cached_title}'")
+        if stored and (stored.get("full_content") or stored.get("is_disambiguation")):
+            print(f"[wikipedia_api] Memory cache hit: '{query}' -> '{cached_title}'")
             stored = _enrich_stored(cached_title, stored)
             result = _build_result(stored, cached_title.lower() != normalized, cached_title, query)
             return result
@@ -434,8 +666,8 @@ def search_wikipedia(query: str) -> dict:
     if db_key in cache:
         cached_title = cache[db_key]
         stored = get_article(cached_title)
-        if stored and stored.get("full_content"):
-            print(f"[wikipedia_api] SQLite cache hit: '{query}' → '{cached_title}'")
+        if stored and (stored.get("full_content") or stored.get("is_disambiguation")):
+            print(f"[wikipedia_api] SQLite cache hit: '{query}' -> '{cached_title}'")
             _query_title_map[normalized] = cached_title
             stored = _enrich_stored(cached_title, stored)
             result = _build_result(stored, cached_title.lower() != normalized, cached_title, query)
@@ -448,7 +680,7 @@ def search_wikipedia(query: str) -> dict:
 
     # ── Level 3: local article store ────────────────────────────────────────
     stored = get_article(resolved_title)
-    if stored and stored.get("full_content"):
+    if stored and (stored.get("full_content") or stored.get("is_disambiguation")):
         print(f"[wikipedia_api] Disk cache hit: '{resolved_title}'")
         stored = _enrich_stored(resolved_title, stored)
         return _build_result(stored, was_corrected, resolved_title, query)
@@ -474,14 +706,31 @@ def search_wikipedia(query: str) -> dict:
         _query_title_map[normalized] = title
         cache[db_key] = title
 
+        # Check for disambiguation
+        if data.get("type") == "disambiguation":
+            options = _fetch_disambiguation_options(title)
+            article_data = {
+                "is_disambiguation": True,
+                "title":             title,
+                "summary":           data.get("extract", "This page may refer to:"),
+                "options":           options,
+                "url":               data.get("content_urls", {}).get("desktop", {}).get("page"),
+            }
+            save_article(title, article_data)
+            return _build_result(article_data, was_corrected, title, query)
+
+        # Parse summary HTML and extract links
+        extract_html = data.get("extract_html", "")
+        summary_segments = parse_summary_segments(extract_html)
+        summary_links = [seg["link"] for seg in summary_segments if "link" in seg]
+
         # Fetch full article text + rich content in parallel
-        full_content_fut = None
         with ThreadPoolExecutor(max_workers=4) as ex:
             futures = {
-                ex.submit(_fetch_full_article, title):        "full_content",
-                ex.submit(_fetch_all_images, title):          "images",
-                ex.submit(_fetch_tables, title):              "tables",
-                ex.submit(_fetch_link_descriptions, title):   "link_descriptions",
+                ex.submit(_fetch_full_article, title):                      "full_content",
+                ex.submit(_fetch_all_images, title):                        "images",
+                ex.submit(_fetch_tables, title):                            "tables",
+                ex.submit(_fetch_link_descriptions, title, summary_links):  "link_descriptions",
             }
             fetch_results: dict = {}
             for future in as_completed(futures):
@@ -493,25 +742,24 @@ def search_wikipedia(query: str) -> dict:
                     fetch_results[key] = [] if key != "link_descriptions" else {}
 
         full_content = fetch_results.get("full_content") or data.get("extract", "")
+        tables = fetch_results.get("tables", [])
+        full_content_enriched = _append_tables_to_content(full_content, tables)
 
         article_data = {
             "title":             title,
             "summary":           data.get("extract"),
-            "full_content":      full_content,
+            "extract_html":      extract_html,
+            "summary_segments":  summary_segments,
+            "full_content":      full_content_enriched,
             "url":               data.get("content_urls", {}).get("desktop", {}).get("page"),
             "image":             data.get("thumbnail", {}).get("source"),
             "images":            fetch_results.get("images", []),
-            "tables":            fetch_results.get("tables", []),
+            "tables":            tables,
             "link_descriptions": fetch_results.get("link_descriptions", {}),
         }
         save_article(title, article_data)
 
-        result = {**article_data}
-        if was_corrected:
-            result["corrected_query"] = resolved_title
-            result["original_query"]  = query
-
-        return result
+        return _build_result(article_data, was_corrected, title, query)
 
     except requests.Timeout:
         return {"error": "Wikipedia request timed out. Please try again."}

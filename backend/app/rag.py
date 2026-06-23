@@ -23,12 +23,16 @@ from app.utils import normalize_cache_key
 # Text splitting
 # ─────────────────────────────────────────
 
-def _split_text(text: str) -> list[str]:
+def _split_text(text: str, title: str = "") -> list[str]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=100,
     )
-    return splitter.split_text(text)
+    chunks = splitter.split_text(text)
+    if title:
+        prefix = f"Article: {title}\n\n"
+        chunks = [prefix + chunk for chunk in chunks]
+    return chunks
 
 
 # ─────────────────────────────────────────
@@ -137,7 +141,7 @@ def run_rag(article: str, question: str, title: str = "", images: list | None = 
         if title and index_exists(title):
             load_index(title)
         else:
-            chunks = _split_text(article)
+            chunks = _split_text(article, title)
             if not chunks:
                 elapsed = time.time() - start_time
                 result = {
@@ -164,7 +168,7 @@ def run_rag(article: str, question: str, title: str = "", images: list | None = 
     # ── Retrieval phase ──────────────────────────────────────────────────────
     try:
         query_embedding = get_embedding(question)
-        retrieved       = search(query_embedding)
+        retrieved       = search(query_embedding, query_text=question)
     except Exception as e:
         print(f"[rag] Retrieval error: {e}")
         elapsed = time.time() - start_time

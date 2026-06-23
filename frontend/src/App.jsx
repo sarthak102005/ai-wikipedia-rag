@@ -52,6 +52,74 @@ function AnimatedNumber({ value }) {
   return <span>{display}</span>;
 }
 
+/* ── Disambiguation View ─────────────────────────────────────────────────── */
+function DisambiguationView({ result, doSearch, setQuery }) {
+  const [filterText, setFilterText] = useState("");
+
+  const filteredOptions = (result.options || []).filter(opt =>
+    opt.title.toLowerCase().includes(filterText.toLowerCase()) ||
+    opt.description.toLowerCase().includes(filterText.toLowerCase())
+  );
+
+  return (
+    <motion.div className="disambiguation-card"
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -16 }}
+      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      whileHover={{ y: -2, boxShadow: "0 16px 48px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.12)" }}>
+      <div className="disambig-header">
+        <span className="disambig-badge">🔍 Disambiguation</span>
+        <h2 className="disambig-title">{result.title}</h2>
+        <p className="disambig-subtitle">
+          The topic you searched for is ambiguous. Please select one of the specific articles below:
+        </p>
+      </div>
+
+      <div className="disambig-filter-wrapper">
+        <input
+          type="text"
+          className="disambig-filter-input"
+          placeholder="🔍 Filter options (e.g. cricketer, road, film)..."
+          value={filterText}
+          onChange={e => setFilterText(e.target.value)}
+        />
+        {filterText && (
+          <span className="disambig-filter-count">
+            Found {filteredOptions.length} of {result.options.length}
+          </span>
+        )}
+      </div>
+
+      <div className="disambig-options-grid">
+        {filteredOptions.length > 0 ? (
+          filteredOptions.map((opt, idx) => (
+            <motion.div
+              key={idx}
+              className="disambig-option-card"
+              onClick={() => {
+                setQuery(opt.title);
+                doSearch(opt.title);
+              }}
+              whileHover={{ scale: 1.015, backgroundColor: "rgba(99,102,241,0.08)", borderColor: "rgba(99,102,241,0.4)" }}
+              whileTap={{ scale: 0.995 }}
+            >
+              <h3 className="disambig-option-title">{opt.title}</h3>
+              <p className="disambig-option-desc">{opt.description}</p>
+            </motion.div>
+          ))
+        ) : (
+          <div className="disambig-no-results">
+            No matching options found. Try checking your spelling or search filter.
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Main App ────────────────────────────────────────────────────────────── */
+
 /* ── Main App ────────────────────────────────────────────────────────────── */
 export default function App() {
   /* existing state */
@@ -283,55 +351,78 @@ export default function App() {
                 </motion.div>
               )}
 
-              {/* ── Article card ── */}
-              <motion.div className="result-card" variants={fadeUp}
-                whileHover={{ y: -4, boxShadow: "0 16px 48px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.18)" }}
-                transition={{ type: "spring", stiffness: 300, damping: 24 }}>
-                {result.image && (
-                  <motion.div className="article-image-wrap"
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-                    <motion.img src={result.image} alt={result.title}
-                      className="article-image" whileHover={{ scale: 1.04 }} transition={{ duration: 0.35 }} />
-                  </motion.div>
-                )}
-                <div className="content">
-                  <motion.div className="article-meta"
-                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
-                    <span className="meta-tag">📖 Wikipedia</span>
-                  </motion.div>
-                  <motion.h2 className="result-title"
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.4 }}>
-                    {result.title}
-                  </motion.h2>
-                  <motion.p className="result-summary"
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4, duration: 0.5 }}>
-                    {result.summary}
-                  </motion.p>
-                  <motion.a href={result.url} target="_blank" rel="noreferrer" className="read-link"
-                    initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }}
-                    whileHover={{ x: 5, scale: 1.03 }}>
-                    Read Full Article →
-                  </motion.a>
-
-                  {/* ── Link descriptions chip cloud ── */}
-                  {Object.keys(linkDescriptions).length > 0 && (
-                    <motion.div className="link-descriptions"
-                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
-                      <div className="link-desc-title">🔗 Related Topics</div>
-                      <div className="link-chips">
-                        {Object.entries(linkDescriptions).slice(0, 24).map(([t, d], i) => (
-                          <motion.div key={t} className="link-chip"
-                            data-tooltip={d}
-                            custom={i} variants={scaleIn} initial="hidden" animate="visible"
-                            whileHover={{ scale: 1.06, y: -2 }}>
-                            {t}
-                          </motion.div>
-                        ))}
-                      </div>
+              {result.is_disambiguation ? (
+                /* ── Disambiguation View ── */
+                <DisambiguationView result={result} doSearch={doSearch} setQuery={setQuery} />
+              ) : (
+                /* ── Standard Article card ── */
+                <motion.div className="result-card" variants={fadeUp}
+                  whileHover={{ y: -4, boxShadow: "0 16px 48px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.18)" }}
+                  transition={{ type: "spring", stiffness: 300, damping: 24 }}>
+                  {result.image && (
+                    <motion.div className="article-image-wrap"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+                      <motion.img src={result.image} alt={result.title}
+                        className="article-image" whileHover={{ scale: 1.04 }} transition={{ duration: 0.35 }} />
                     </motion.div>
                   )}
-                </div>
-              </motion.div>
+                  <div className="content">
+                    <motion.div className="article-meta"
+                      initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
+                      <span className="meta-tag">📖 Wikipedia</span>
+                    </motion.div>
+                    <motion.h2 className="result-title"
+                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.4 }}>
+                      {result.title}
+                    </motion.h2>
+                    <motion.p className="result-summary"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4, duration: 0.5 }}>
+                      {result.summary_segments && result.summary_segments.length > 0 ? (
+                        result.summary_segments.map((seg, idx) => {
+                          if (seg.link && linkDescriptions[seg.link]) {
+                            const info = linkDescriptions[seg.link];
+                            return (
+                              <span key={idx} className="inline-wiki-link-wrapper">
+                                <button
+                                  className="inline-wiki-link"
+                                  onClick={() => {
+                                    setQuery(seg.link);
+                                    doSearch(seg.link);
+                                  }}
+                                >
+                                  {seg.text}
+                                </button>
+                                <span className="wiki-hover-card">
+                                  {info.thumbnail && (
+                                    <img
+                                      src={info.thumbnail}
+                                      alt={seg.link}
+                                      className="wiki-hover-card-img"
+                                      loading="lazy"
+                                    />
+                                  )}
+                                  <span className="wiki-hover-card-content">
+                                    <span className="wiki-hover-card-title">{seg.link}</span>
+                                    <span className="wiki-hover-card-desc">{info.description}</span>
+                                  </span>
+                                </span>
+                              </span>
+                            );
+                          }
+                          return <span key={idx}>{seg.text}</span>;
+                        })
+                      ) : (
+                        result.summary
+                      )}
+                    </motion.p>
+                    <motion.a href={result.url} target="_blank" rel="noreferrer" className="read-link"
+                      initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }}
+                      whileHover={{ x: 5, scale: 1.03 }}>
+                      Read Full Article →
+                    </motion.a>
+                  </div>
+                </motion.div>
+              )}
 
               {/* ── Image Gallery ── */}
               {images.length > 0 && (

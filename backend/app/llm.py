@@ -21,8 +21,52 @@ from openai import OpenAI, APITimeoutError, APIConnectionError, APIStatusError
 
 load_dotenv()
 
-# ── Groq client (primary) ──────────────────────────────────────────────────
-_groq_key = os.getenv("GROQ_API_KEY", "").strip()
+# ── Mistral client (primary) ───────────────────────────────────────────────
+_mistral_key = ""
+for k, v in os.environ.items():
+    if k.strip() == "MISTRAL_API_KEY":
+        _mistral_key = v.strip()
+        break
+
+_mistral_client = (
+    OpenAI(
+        api_key=_mistral_key,
+        base_url="https://api.mistral.ai/v1",
+        timeout=25.0,
+    )
+    if _mistral_key
+    else None
+)
+
+_MISTRAL_MODEL = "mistral-large-latest"
+
+
+# ── Gemini client (fallback 1) ─────────────────────────────────────────────
+_gemini_key = ""
+for k, v in os.environ.items():
+    if k.strip() == "GEMINI_API_KEY":
+        _gemini_key = v.strip()
+        break
+
+_gemini_client = (
+    OpenAI(
+        api_key=_gemini_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        timeout=20.0,
+    )
+    if _gemini_key
+    else None
+)
+
+_GEMINI_MODEL = "gemini-2.0-flash"
+
+
+# ── Groq client (fallback 2) ───────────────────────────────────────────────
+_groq_key = ""
+for k, v in os.environ.items():
+    if k.strip() == "GROQ_API_KEY":
+        _groq_key = v.strip()
+        break
 
 _groq_client = (
     OpenAI(
@@ -34,16 +78,17 @@ _groq_client = (
     else None
 )
 
-_GROQ_MODEL = "llama-3.1-8b-instant"   # fastest free model on Groq
+_GROQ_MODEL = "llama-3.3-70b-versatile"
 
-# ── OpenRouter client (fallback) ────────────────────────────────────────────
+
+# ── OpenRouter client (fallback 3) ──────────────────────────────────────────
 _or_client = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY", ""),
     base_url="https://openrouter.ai/api/v1",
     timeout=30.0,
 )
 
-_OR_MODEL = "openrouter/free"           # original working model — kept as fallback
+_OR_MODEL = "openrouter/free"
 
 
 # ─────────────────────────────────────────
@@ -66,12 +111,64 @@ def _build_prompt(context: str, question: str) -> str:
 
 def ask_llm(context: str, question: str) -> str:
     """
-    Try Groq first (if GROQ_API_KEY is set), then fall back to openrouter/free.
+    Try Mistral first, then Gemini, then Groq, then OpenRouter.
     """
     prompt = _build_prompt(context, question)
     messages = [{"role": "user", "content": prompt}]
 
-    # ── Attempt 1: Groq ──────────────────────────────────────────────────────
+    # ── Attempt 1: Mistral ───────────────────────────────────────────────────
+    if _mistral_client:
+        try:
+            resp = _mistral_client.chat.completions.create(
+                model=_MISTRAL_MODEL,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=512,
+            )
+            print(f"[llm] Answered via Mistral ({_MISTRAL_MODEL})")
+            return resp.choices[0].message.content
+
+        except APIStatusError as e:
+            if e.status_code == 429:
+                print("[llm] Mistral rate-limited — trying Gemini...")
+            else:
+                print(f"[llm] Mistral error {e.status_code} — trying Gemini...")
+
+        except (APITimeoutError, APIConnectionError) as e:
+            print(f"[llm] Mistral connection issue ({type(e).__name__}) — trying Gemini...")
+
+        except Exception as e:
+            print(f"[llm] Mistral unexpected error: {e} — trying Gemini...")
+    else:
+        print("[llm] MISTRAL_API_KEY not set — trying Gemini...")
+
+    # ── Attempt 2: Gemini ────────────────────────────────────────────────────
+    if _gemini_client:
+        try:
+            resp = _gemini_client.chat.completions.create(
+                model=_GEMINI_MODEL,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=512,
+            )
+            print(f"[llm] Answered via Gemini ({_GEMINI_MODEL})")
+            return resp.choices[0].message.content
+
+        except APIStatusError as e:
+            if e.status_code == 429:
+                print("[llm] Gemini rate-limited — trying Groq...")
+            else:
+                print(f"[llm] Gemini error {e.status_code} — trying Groq...")
+
+        except (APITimeoutError, APIConnectionError) as e:
+            print(f"[llm] Gemini connection issue ({type(e).__name__}) — trying Groq...")
+
+        except Exception as e:
+            print(f"[llm] Gemini unexpected error: {e} — trying Groq...")
+    else:
+        print("[llm] GEMINI_API_KEY not set — trying Groq...")
+
+    # ── Attempt 3: Groq ──────────────────────────────────────────────────────
     if _groq_client:
         try:
             resp = _groq_client.chat.completions.create(
@@ -94,11 +191,10 @@ def ask_llm(context: str, question: str) -> str:
 
         except Exception as e:
             print(f"[llm] Groq unexpected error: {e} — falling back...")
-
     else:
         print("[llm] GROQ_API_KEY not set — using OpenRouter directly.")
 
-    # ── Attempt 2: OpenRouter free (original fallback) ────────────────────────
+    # ── Attempt 4: OpenRouter free ──────────────────────────────────────────
     try:
         resp = _or_client.chat.completions.create(
             model=_OR_MODEL,
