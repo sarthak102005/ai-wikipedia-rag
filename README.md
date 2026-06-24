@@ -173,7 +173,7 @@ sequenceDiagram
         alt Index on disk
             FAISS-->>FastAPI: Load cached .index file
         else Fresh index needed
-            FastAPI->>FastAPI: Split article → chunks (500 tokens, overlap 100)
+            FastAPI->>FastAPI: Split article → chunks (500 tokens, overlap 150)
             FastAPI->>Embed: get_embeddings(chunks)
             Embed-->>FastAPI: 384-dim float vectors
             FastAPI->>FAISS: build_index(chunks, embeddings)

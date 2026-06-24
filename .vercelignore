@@ -1,0 +1,20 @@
+# Backend files (not needed for Vercel frontend)
+backend/
+Dockerfile
+requirements.txt
+docker-compose.yml
+
+# Development files
+scratch/
+.git/
+.gitignore
+node_modules/
+
+# Documentation (optional, can include if needed)
+# docs/
+
+# Cache and logs
+.cache/
+*.log
+*.pyc
+__pycache__/

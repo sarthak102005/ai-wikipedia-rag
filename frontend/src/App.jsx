@@ -10,6 +10,10 @@ import "./App.css";
 
 const HISTORY_KEY = "wiki_search_history";
 const MAX_HISTORY = 10;
+// In development, use localhost; in production, use VITE_API_BASE_URL env var
+const API_BASE_URL = import.meta.env.DEV 
+  ? "http://127.0.0.1:8001" 
+  : (import.meta.env.VITE_API_BASE_URL || "");
 
 /* ── Animation variants ──────────────────────────────────────────────────── */
 const fadeUp = {
@@ -173,7 +177,7 @@ export default function App() {
     setRelatedImage(null); setTablesOpen(false);
 
     try {
-      const res  = await fetch("http://127.0.0.1:8001/search", {
+      const res  = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery }),
@@ -204,7 +208,7 @@ export default function App() {
     setRelatedImage(null);
 
     try {
-      const res  = await fetch("http://127.0.0.1:8001/ask", {
+      const res  = await fetch(`${API_BASE_URL}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -237,6 +241,7 @@ export default function App() {
         <div className="glow-circle glow-1" />
         <div className="glow-circle glow-2" />
         <div className="glow-circle glow-3" />
+        <div className="glow-circle glow-4" />
       </div>
 
       <div className="container">
@@ -244,7 +249,7 @@ export default function App() {
         {/* ── Header ── */}
         <motion.div className="header" initial="hidden" animate="visible"
           variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.12 } } }}>
-          <motion.div className="header-badge" variants={fadeUp}>⚡ Powered by RAG + Llama 3.1</motion.div>
+          <motion.div className="header-badge" variants={fadeUp}>⚡ Powered by RAG + MiniMax-M3</motion.div>
           <motion.h1 variants={fadeUp}>AI Wikipedia Search</motion.h1>
           <motion.p className="header-subtitle" variants={fadeUp}>
             Ask questions about any topic — powered by retrieval-augmented generation

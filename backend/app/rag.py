@@ -32,7 +32,7 @@ from app.utils import normalize_cache_key
 def _split_text(text: str, title: str = "") -> list[str]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
-        chunk_overlap=100,
+        chunk_overlap=150,
     )
     chunks = splitter.split_text(text)
     if title:

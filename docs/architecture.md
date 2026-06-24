@@ -341,4 +341,4 @@ Redis would add a dependency (Docker/service). SQLite is built into Python, requ
 
 ### Why `RecursiveCharacterTextSplitter`?
 
-This splitter tries to break text at natural boundaries in order: `\n\n` (paragraphs), `\n` (lines), ` ` (words). This preserves semantic coherence better than a naive character-count split. With `chunk_size=500` and `chunk_overlap=100`, each chunk is a complete, coherent passage of text.
+This splitter tries to break text at natural boundaries in order: `\n\n` (paragraphs), `\n` (lines), ` ` (words). This preserves semantic coherence better than a naive character-count split. With `chunk_size=500` and `chunk_overlap=150`, each chunk is a complete, coherent passage of text.
