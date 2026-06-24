@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy root requirements.txt (which contains fastapi, uvicorn, sentence-transformers, faiss-cpu, etc.)
 COPY requirements.txt /workspace/requirements.txt
-RUN pip install --no-cache-dir -r /workspace/requirements.txt
+# Also copy backend requirements (dev/runtime deps like beautifulsoup4)
+COPY backend/requirements.txt /workspace/backend/requirements.txt
+RUN pip install --no-cache-dir -r /workspace/requirements.txt -r /workspace/backend/requirements.txt
 
 # Copy backend source code
 COPY backend/ /workspace/backend/
