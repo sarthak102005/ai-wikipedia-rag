@@ -13,13 +13,8 @@ app = FastAPI(title="AI Wikipedia RAG", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",   # Vite fallback port
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,12 +60,9 @@ frontend_dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."
 if os.path.exists(frontend_dist_dir):
     print(f"[main] Mounting static files from: {frontend_dist_dir}")
     app.mount("/", StaticFiles(directory=frontend_dist_dir, html=True), name="static")
-
-    # Catch-all route to serve index.html for SPA routing
-    @app.get("/{catchall:path}")
-    async def read_index(catchall: str):
-        index_path = os.path.join(frontend_dist_dir, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
 else:
     print(f"[main] Warning: static files directory not found at: {frontend_dist_dir}")
+
+    @app.get("/")
+    def root():
+        return {"message": "Frontend not built. API is running."}
