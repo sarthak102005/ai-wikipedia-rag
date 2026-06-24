@@ -1,6 +1,7 @@
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.14.0
+beautifulsoup4==4.12.3
 certifi==2026.6.17
 cffi==2.0.0
 charset-normalizer==3.4.7
@@ -29,6 +30,7 @@ huggingface_hub==1.20.1
 idna==3.18
 Jinja2==3.1.6
 joblib==1.5.3
+langchain-text-splitters==0.2.4
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
