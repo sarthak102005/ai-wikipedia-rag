@@ -1,5 +1,5 @@
 # Stage 1: Build the React frontend
-FROM node:22-alpine AS frontend-builder
+FROM node:18-alpine AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Run the FastAPI backend
-FROM python:3.12-slim
+FROM python:3.10-slim
 WORKDIR /workspace
 
 # Install system dependencies if any are needed (e.g. for building packages)
@@ -18,9 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy root requirements.txt (which contains fastapi, uvicorn, sentence-transformers, faiss-cpu, etc.)
 COPY requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
-
-# Pre-download the sentence-transformers model for offline use
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Copy backend source code
 COPY backend/ /workspace/backend/
@@ -34,7 +31,6 @@ RUN mkdir -p /workspace/backend/data && chmod -R 777 /workspace/backend/data
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
-ENV PYTHONPATH=/workspace/backend
 
 # Expose port 7860 (Hugging Face default)
 EXPOSE 7860

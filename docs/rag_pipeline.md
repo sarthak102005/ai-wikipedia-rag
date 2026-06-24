@@ -89,7 +89,7 @@ Wikipedia Article (raw text, ~10,000-80,000 characters)
     │
     ▼  STEP 1: CHUNKING
 Split into overlapping chunks
-(chunk_size=500 tokens, chunk_overlap=150 tokens)
+(chunk_size=500 tokens, chunk_overlap=100 tokens)
     │
     ▼  STEP 2: EMBEDDINGS
 Convert each chunk to a 384-dimensional vector
@@ -163,14 +163,14 @@ Chunk 8 starts:  "Delhi on 22 November 2012, which set a record..."
 
 Without overlap, FAISS would find Chunk 8 (has "Delhi") or Chunk 7 (has "183 runs"), but neither chunk alone has the complete answer.
 
-With 150-token overlap, Chunk 8 **includes the last 150 tokens of Chunk 7**, so the complete answer is present in a single chunk:
+With 100-token overlap, Chunk 8 **includes the last 100 tokens of Chunk 7**, so the complete answer is present in a single chunk:
 
 ```
 Chunk 8 (with overlap): "...He scored 183 runs in the test match held in
                          Delhi on 22 November 2012, which set a record..."
 ```
 
-**Rule of thumb:** Chunk overlap should be 10-20% of chunk size. At `chunk_size=500, chunk_overlap=150`, the overlap is 30%.
+**Rule of thumb:** Chunk overlap should be 10-20% of chunk size. At `chunk_size=500, chunk_overlap=100`, the overlap is 20%.
 
 ---
 

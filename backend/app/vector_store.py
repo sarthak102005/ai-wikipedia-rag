@@ -32,9 +32,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DIMENSION = 384
 
 # Cosine similarity cutoff — chunks below this score are excluded from context.
-# Range is [-1, 1]; 0.3 discards clearly off-topic passages while keeping
-# loosely related ones that may still be useful.
-SIMILARITY_THRESHOLD = 0.3
+# Range is [-1, 1]; 0.25 keeps more useful article passages while still
+# filtering clearly unrelated results.
+SIMILARITY_THRESHOLD = 0.25
 
 # In-memory state for the currently loaded index
 _index: faiss.Index | None = None
@@ -166,8 +166,8 @@ def keyword_search(query: str, chunks: list[str], k: int = 6) -> list[dict]:
     if scored_chunks:
         max_score = scored_chunks[0][0]
         for score, text in scored_chunks[:k]:
-            # Normalize BM25 score to mock cosine similarity range [0.35, 0.7] for UI consistency
-            norm_score = 0.35 + 0.35 * (score / max_score) if max_score > 0 else 0.35
+            # Normalize BM25 score into a lower range so vector similarity stays primary
+            norm_score = 0.1 + 0.25 * (score / max_score) if max_score > 0 else 0.1
             results.append({
                 "text": text,
                 "score": norm_score,
@@ -176,7 +176,7 @@ def keyword_search(query: str, chunks: list[str], k: int = 6) -> list[dict]:
     return results
 
 
-def search(query_embedding: list, query_text: str = "", k: int = 6) -> list[dict]:
+def search(query_embedding: list, query_text: str = "", k: int = 8) -> list[dict]:
     """
     Return the top-k most relevant chunks using a hybrid FAISS vector
     and keyword matching search, falling back to top vector matches if none exceed threshold.
@@ -204,19 +204,25 @@ def search(query_embedding: list, query_text: str = "", k: int = 6) -> list[dict
     if query_text and _documents:
         keyword_results = keyword_search(query_text, _documents, k=k)
 
-    # Merge results prioritizing vector, adding unique keyword matches, sorting by score desc
+    # Merge results prioritizing vector hits first, then unique keyword matches.
     seen = set()
     merged = []
-    
+
     for res in vector_results:
         merged.append(res)
         seen.add(res["text"])
-        
+
     for res in keyword_results:
         if res["text"] not in seen:
             merged.append(res)
             seen.add(res["text"])
-            
+            if len(merged) >= k:
+                break
+
+    if len(merged) < k and not vector_results:
+        # If no strong vector matches are available, allow the top keyword hits.
+        merged = keyword_results[:k]
+
     merged.sort(key=lambda x: x["score"], reverse=True)
     results = merged[:k]
 

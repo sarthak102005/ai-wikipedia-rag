@@ -1,12 +1,3 @@
----
-title: AI Wikipedia RAG
-emoji: 🧠
-colorFrom: blue
-colorTo: purple
-sdk: docker
-pinned: true
----
-
 <div align="center">
 
 # 🧠 AI Wikipedia Search using RAG
@@ -182,7 +173,7 @@ sequenceDiagram
         alt Index on disk
             FAISS-->>FastAPI: Load cached .index file
         else Fresh index needed
-            FastAPI->>FastAPI: Split article → chunks (500 tokens, overlap 150)
+            FastAPI->>FastAPI: Split article → chunks (500 tokens, overlap 100)
             FastAPI->>Embed: get_embeddings(chunks)
             Embed-->>FastAPI: 384-dim float vectors
             FastAPI->>FAISS: build_index(chunks, embeddings)
@@ -336,12 +327,14 @@ pip install -r requirements.txt
 
 ### 3. Configure API Keys
 
-Edit `backend/.env`:
+Edit `backend/.env` (local development only):
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_key_here
 GROQ_API_KEY=your_groq_key_here   # Recommended for speed
 ```
+
+> If you deploy to Hugging Face Spaces, set these secrets in the Space settings instead of using a local `.env` file.
 
 ### 4. Start the Backend Server
 

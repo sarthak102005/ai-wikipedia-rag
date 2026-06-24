@@ -190,7 +190,7 @@ Step 4: Indexing phase
   4a. If FAISS index exists on disk → load it (skip embedding)
   4b. Else:
       - Split article with RecursiveCharacterTextSplitter
-        (chunk_size=500, chunk_overlap=150)
+        (chunk_size=500, chunk_overlap=100)
       - Embed all chunks with all-MiniLM-L6-v2
       - Build FAISS IndexFlatIP
       - Save index + chunks to disk

@@ -28,10 +28,17 @@ Setup (local):
 """
 
 import os
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv is optional in deployed environments where secrets
+    # are provided through environment variables instead of a local .env file.
+    pass
+
 from openai import OpenAI, APITimeoutError, APIConnectionError, APIStatusError
 
-load_dotenv()
 
 def _get_env(key: str) -> str:
     """Read env var, stripping accidental whitespace (common copy-paste issue)."""
@@ -106,6 +113,7 @@ def _build_prompt(context: str, question: str) -> str:
     return (
         "You are a Wikipedia-based QA assistant.\n"
         "Answer using ONLY the context below. Be concise.\n"
+        "If the context contains tables or structured statistics, interpret them as numeric data and answer directly using those values.\n"
         'If the answer is not present, say: "I couldn\'t find that information in the article."\n\n'
         f"CONTEXT:\n{context}\n\n"
         f"QUESTION: {question}"
@@ -130,7 +138,7 @@ def ask_llm(context: str, question: str) -> str:
             resp = _groq_client.chat.completions.create(
                 model=_GROQ_MODEL,
                 messages=messages,
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=512,
             )
             print(f"[llm] Answered via Groq ({_GROQ_MODEL})")
@@ -156,7 +164,7 @@ def ask_llm(context: str, question: str) -> str:
             resp = _gemini_client.chat.completions.create(
                 model=_GEMINI_MODEL,
                 messages=messages,
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=512,
             )
             print(f"[llm] Answered via Gemini ({_GEMINI_MODEL})")
@@ -182,7 +190,7 @@ def ask_llm(context: str, question: str) -> str:
             resp = _or_client.chat.completions.create(
                 model=_OR_MODEL,
                 messages=messages,
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=512,
             )
             print(f"[llm] Answered via OpenRouter ({_OR_MODEL})")
@@ -208,7 +216,7 @@ def ask_llm(context: str, question: str) -> str:
             resp = _minimax_client.chat.completions.create(
                 model=_MINIMAX_MODEL,
                 messages=messages,
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=512,
                 extra_body={"thinking": {"type": "disabled"}},
             )

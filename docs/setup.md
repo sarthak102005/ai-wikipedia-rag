@@ -128,6 +128,8 @@ OPENROUTER_API_KEY=sk-or-v1-your-key-here
 GROQ_API_KEY=gsk_your-groq-key-here
 ```
 
+> If you deploy to Hugging Face Spaces, you do not need a local `.env` file. Spaces injects secrets as environment variables.
+
 > ⚠️ **Never commit this file to Git.** It's already in `.gitignore`.
 
 **Minimum viable setup:** You need at least one of the two keys. Groq is recommended for speed.

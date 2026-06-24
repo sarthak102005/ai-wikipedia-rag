@@ -11,22 +11,14 @@ from app.rag import run_rag
 
 app = FastAPI(title="AI Wikipedia RAG", version="3.0.0")
 
-# CORS configuration: support local development and production Vercel frontend
-allowed_origins = [
-    "http://localhost:5173",
-    "http://localhost:5174",   # Vite fallback port
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-]
-
-# Add production frontend URL from environment if available
-frontend_url = os.getenv("FRONTEND_URL")
-if frontend_url:
-    allowed_origins.append(frontend_url)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",   # Vite fallback port
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

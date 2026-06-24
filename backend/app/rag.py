@@ -15,6 +15,7 @@ v4 additions:
 """
 
 import time
+import re
 import numpy as np
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -31,8 +32,9 @@ from app.utils import normalize_cache_key
 
 def _split_text(text: str, title: str = "") -> list[str]:
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=150,
+        chunk_size=700,
+        chunk_overlap=140,
+        separators=["\n\n", "\n", " ", ""],
     )
     chunks = splitter.split_text(text)
     if title:
@@ -162,6 +164,67 @@ def _find_related_image(question: str, images: list[dict]) -> dict | None:
         return None
 
 
+def _extract_direct_answer(question: str, retrieved: list[dict]) -> str | None:
+    q = question.lower()
+    if not retrieved:
+        return None
+
+    # Spouse / relations questions
+    if any(keyword in q for keyword in ["spouse", "wife", "married", "husband", "wife's", "spouse's"]):
+        for item in retrieved:
+            text = item["text"]
+            for line in text.splitlines():
+                if any(key in line.lower() for key in ["relations", "spouse", "wife", "married"]):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if "|" in line:
+                        parts = [p.strip() for p in line.split("|") if p.strip()]
+                        candidate = next((p for p in parts if not any(k in p.lower() for k in ["relations", "spouse", "wife", "married"])), None)
+                        if candidate:
+                            return f"The article lists his relations/spouse as: {candidate}."
+                    if ":" in line:
+                        return f"The article lists his relations/spouse as: {line.split(":",1)[1].strip()}."
+                    return f"The article lists: {line}."
+
+    # Runs questions
+    if "run" in q:
+        for item in retrieved:
+            text = item["text"]
+            if "runs scored" not in text.lower():
+                continue
+
+            # Inline table row parse
+            match = re.search(
+                r"Runs scored\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)\s*\|\s*([\d,]+)",
+                text,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                return (
+                    f"According to the article, he has scored {match.group(1)} Test runs, "
+                    f"{match.group(2)} ODI runs, {match.group(3)} T20I runs, and {match.group(4)} FC runs."
+                )
+
+            # Vertical table parse
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            for idx, line in enumerate(lines):
+                if "runs scored" in line.lower():
+                    values = []
+                    for j in range(idx + 1, min(idx + 6, len(lines))):
+                        if re.fullmatch(r"[\d,]+", lines[j]):
+                            values.append(lines[j])
+                    if len(values) >= 4:
+                        return (
+                            f"According to the article, he has scored {values[0]} Test runs, "
+                            f"{values[1]} ODI runs, {values[2]} T20I runs, and {values[3]} FC runs."
+                        )
+                    if values:
+                        return f"According to the article, he has scored {' / '.join(values)} runs."
+
+    return None
+
+
 # ─────────────────────────────────────────
 # Main RAG entry point
 # ─────────────────────────────────────────
@@ -271,7 +334,7 @@ def run_rag(
     # ── Retrieval phase ──────────────────────────────────────────────────────
     try:
         query_embedding = get_embedding(question)
-        retrieved       = search(query_embedding, query_text=question)
+        retrieved       = search(query_embedding, query_text=question, k=8)
     except Exception as e:
         print(f"[rag] Retrieval error: {e}")
         elapsed = time.time() - start_time
@@ -295,9 +358,15 @@ def run_rag(
         cache[cache_key] = result
         return result
 
-    # ── Generation phase ─────────────────────────────────────────────────────
-    context = "\n\n".join(item["text"] for item in retrieved)
-    answer  = ask_llm(context, question)
+    retrieved = retrieved[:12]
+
+    # ── Direct answer extraction from retrieved chunks first ───────────────
+    direct_answer = _extract_direct_answer(question, retrieved)
+    if direct_answer is not None:
+        answer = direct_answer
+    else:
+        context = "\n\n".join(item["text"] for item in retrieved[:6])
+        answer = ask_llm(context, question)
 
     # Semantic image matching
     related_image = _find_related_image(question, images)

@@ -10,10 +10,7 @@ import "./App.css";
 
 const HISTORY_KEY = "wiki_search_history";
 const MAX_HISTORY = 10;
-// In development, use localhost; in production, use VITE_API_BASE_URL env var
-const API_BASE_URL = import.meta.env.DEV 
-  ? "http://127.0.0.1:8001" 
-  : (import.meta.env.VITE_API_BASE_URL || "");
+const API_BASE_URL = import.meta.env.DEV ? "http://127.0.0.1:8001" : "";
 
 /* ── Animation variants ──────────────────────────────────────────────────── */
 const fadeUp = {
