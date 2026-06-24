@@ -31,6 +31,7 @@ RUN mkdir -p /workspace/backend/data && chmod -R 777 /workspace/backend/data
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
+ENV PYTHONPATH=/workspace/backend
 
 # Expose port 7860 (Hugging Face default)
 EXPOSE 7860
