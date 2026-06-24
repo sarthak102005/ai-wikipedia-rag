@@ -18,6 +18,9 @@ COPY requirements.txt /workspace/requirements.txt
 RUN python -m pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
+# Download the sentence-transformers model at build time so runtime does not need network access
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
 COPY backend/ /workspace/backend/
 COPY --from=frontend-builder /frontend/dist /workspace/frontend/dist
 
