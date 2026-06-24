@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /workspace/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/requirements.txt
 
+# Pre-download the sentence-transformers model for offline use
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # Copy backend source code
 COPY backend/ /workspace/backend/
 
