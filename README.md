@@ -1,3 +1,14 @@
+---
+title: AI Wikipedia RAG
+emoji: "🧠"
+colorFrom: blue
+colorTo: indigo
+sdk: python
+python_version: "3.12"
+app_file: backend/app/main.py
+pinned: false
+---
+
 <div align="center">
 
 # 🧠 AI Wikipedia Search using RAG
