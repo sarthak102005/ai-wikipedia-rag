@@ -1,3 +1,12 @@
+---
+title: AI Wikipedia RAG
+emoji: 🧠
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: true
+---
+
 <div align="center">
 
 # 🧠 AI Wikipedia Search using RAG
