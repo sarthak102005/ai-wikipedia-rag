@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /workspace/requirements.txt
 # Also copy backend requirements (dev/runtime deps like beautifulsoup4)
 COPY backend/requirements.txt /workspace/backend/requirements.txt
+# Ensure pip/setuptools/wheel are up-to-date to improve dependency resolution
+RUN python -m pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r /workspace/requirements.txt -r /workspace/backend/requirements.txt
 
 # Copy backend source code
