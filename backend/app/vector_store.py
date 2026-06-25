@@ -1,21 +1,10 @@
 """
-FAISS vector store with persistence and cosine similarity thresholding.
+FAISS vector store — cosine similarity with adaptive threshold and intro-anchor access.
 
-Changes over original:
-1. Switched from IndexFlatL2 (Euclidean) to IndexFlatIP (inner product).
-   With L2-normalised vectors, inner product equals cosine similarity,
-   which gives better semantic ranking for sentence embeddings.
-
-2. Added save_index / load_index using faiss.write_index / read_index.
-   Indices are stored at backend/data/faiss/<title>.index
-   Chunks are stored alongside as <title>.chunks.json
-   This avoids re-embedding the same article on repeat requests.
-
-3. Added SIMILARITY_THRESHOLD: chunks scoring below the threshold are
-   silently dropped. This prevents low-signal passages from confusing
-   the LLM with irrelevant context.
-
-4. index_exists(title) lets rag.py check before deciding whether to build.
+Key improvements:
+- get_intro_chunks(): always expose first N chunks (article intro/definition)
+- Adaptive threshold in search(): if too few results, automatically lowers cutoff
+- SIMILARITY_THRESHOLD lowered to 0.18 for better recall on diverse question types
 """
 
 import faiss
@@ -31,10 +20,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DIMENSION = 384
 
-# Cosine similarity cutoff — chunks below this score are excluded from context.
-# Range is [-1, 1]; 0.25 keeps more useful article passages while still
-# filtering clearly unrelated results.
-SIMILARITY_THRESHOLD = 0.25
+# Cosine similarity cutoff — lowered to 0.18 for better recall.
+# Adaptive search will lower this further if needed (see search()).
+SIMILARITY_THRESHOLD = 0.18
 
 # In-memory state for the currently loaded index
 _index: faiss.Index | None = None
@@ -70,6 +58,20 @@ def index_exists(title: str) -> bool:
 def get_total_chunks() -> int:
     """Return the total number of chunks/vectors in the active index."""
     return _index.ntotal if _index is not None else 0
+
+
+def get_intro_chunks(n: int = 3) -> list[dict]:
+    """
+    Return the first N chunks from the active index (always the article introduction).
+    These are used as 'anchor context' — guaranteed to include the article definition
+    regardless of how well any question embeds against them.
+    """
+    if not _documents:
+        return []
+    return [
+        {"text": text, "score": 0.40, "method": "intro_anchor"}
+        for text in _documents[:min(n, len(_documents))]
+    ]
 
 
 def load_index(title: str) -> bool:
@@ -116,17 +118,23 @@ def build_index(chunks: list[str], embeddings: list, title: str = "") -> None:
             print(f"[vector_store] Could not persist index for '{title}': {e}")
 
 
-def keyword_search(query: str, chunks: list[str], k: int = 6) -> list[dict]:
-    """Simple BM25-style keyword search over in-memory chunks."""
+def keyword_search(query: str, chunks: list[str], k: int = 8) -> list[dict]:
+    """BM25-style keyword search over in-memory chunks."""
     def tokenize(text: str) -> list[str]:
         return re.findall(r'\w+', text.lower())
 
     query_tokens = tokenize(query)
-    stopwords = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "is", "was", "were", "be", "been", "by", "from"}
-    query_tokens = [t for t in query_tokens if t not in stopwords and len(t) > 1]
-    if not query_tokens:
-        query_tokens = tokenize(query)
-        
+    stopwords = {
+        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "with", "is", "was", "were", "be", "been", "by", "from", "what",
+        "who", "when", "where", "how", "why", "which", "did", "does", "do",
+        "has", "have", "had", "are", "tell", "me", "about", "many", "much",
+        "can", "could", "would", "his", "her", "its", "their", "he", "she",
+    }
+    filtered_tokens = [t for t in query_tokens if t not in stopwords and len(t) > 1]
+    # Always keep non-stopword tokens; fallback to all tokens if none survive
+    query_tokens = filtered_tokens if filtered_tokens else query_tokens
+
     if not query_tokens:
         return []
 
@@ -145,68 +153,90 @@ def keyword_search(query: str, chunks: list[str], k: int = 6) -> list[dict]:
     b = 0.75
 
     for chunk in chunks:
+        chunk_lower = chunk.lower()
         chunk_tokens = tokenize(chunk)
         chunk_len = len(chunk_tokens)
         if chunk_len == 0:
             continue
         counts = Counter(chunk_tokens)
         score = 0.0
-        
+
         for token in query_tokens:
             if token in counts:
                 tf = counts[token]
-                score += idf[token] * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (chunk_len / avg_len)))
-        
+                score += idf[token] * (tf * (k1 + 1)) / (
+                    tf + k1 * (1 - b + b * (chunk_len / avg_len))
+                )
+
+        # Exact phrase bonus: if the exact query (minus punctuation) appears in the chunk, huge boost
+        query_clean = re.sub(r'[^\w\s]', '', query.lower().strip())
+        if query_clean and len(query_clean.split()) > 1:
+            if query_clean in chunk_lower:
+                score += 5.0  # Massive boost for exact phrase match
+            else:
+                # Try a slightly looser match (all words in order)
+                pattern = r'\s+'.join(re.escape(w) for w in query_clean.split())
+                if re.search(pattern, chunk_lower):
+                    score += 3.0
+
         if score > 0:
             scored_chunks.append((score, chunk))
 
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    
+
     results = []
     if scored_chunks:
         max_score = scored_chunks[0][0]
         for score, text in scored_chunks[:k]:
-            # Normalize BM25 score into a lower range so vector similarity stays primary
-            norm_score = 0.1 + 0.25 * (score / max_score) if max_score > 0 else 0.1
-            results.append({
-                "text": text,
-                "score": norm_score,
-                "method": "keyword"
-            })
+            norm_score = 0.10 + 0.25 * (score / max_score) if max_score > 0 else 0.10
+            results.append({"text": text, "score": norm_score, "method": "keyword"})
     return results
 
 
-def search(query_embedding: list, query_text: str = "", k: int = 8) -> list[dict]:
+def search(query_embedding: list, query_text: str = "", k: int = 10) -> list[dict]:
     """
-    Return the top-k most relevant chunks using a hybrid FAISS vector
-    and keyword matching search, falling back to top vector matches if none exceed threshold.
+    Hybrid FAISS vector + BM25 keyword search with adaptive threshold.
+
+    Adaptive threshold behaviour:
+      1. Try SIMILARITY_THRESHOLD (0.18)  → if >= 3 vector hits, done
+      2. Drop to 0.12                     → if >= 2 vector hits, done
+      3. Drop to 0.08                     → take whatever is left
+      4. Absolute fallback: top-3 raw vector results regardless of score
+
+    This ensures simple questions like "What is X?" always get relevant context
+    even when the question embedding scores lower than expected against the passage.
     """
-    vector_results = []
     all_vector_results = []
 
     if _index is not None and _index.ntotal > 0:
         vector = np.array([query_embedding], dtype="float32")
-        faiss.normalize_L2(vector)   # must normalise query too
+        faiss.normalize_L2(vector)
 
-        scores, indices = _index.search(vector, k)
+        scores, indices = _index.search(vector, min(k, _index.ntotal))
         for score, i in zip(scores[0], indices[0]):
             if i != -1:
-                item = {
-                    "text": _documents[i],
-                    "score": float(score),
-                    "method": "vector"
-                }
-                all_vector_results.append(item)
-                if score >= SIMILARITY_THRESHOLD:
-                    vector_results.append(item)
+                all_vector_results.append({
+                    "text":   _documents[i],
+                    "score":  float(score),
+                    "method": "vector",
+                })
 
+    # Adaptive threshold — lower progressively until we have enough hits
+    thresholds = [SIMILARITY_THRESHOLD, 0.12, 0.08]
+    vector_results = []
+    for thresh in thresholds:
+        vector_results = [r for r in all_vector_results if r["score"] >= thresh]
+        if len(vector_results) >= 3:
+            break
+
+    # Keyword search
     keyword_results = []
     if query_text and _documents:
         keyword_results = keyword_search(query_text, _documents, k=k)
 
-    # Merge results prioritizing vector hits first, then unique keyword matches.
-    seen = set()
-    merged = []
+    # Merge: vector hits first, then unique keyword hits
+    seen: set[str] = set()
+    merged: list[dict] = []
 
     for res in vector_results:
         merged.append(res)
@@ -219,16 +249,12 @@ def search(query_embedding: list, query_text: str = "", k: int = 8) -> list[dict
             if len(merged) >= k:
                 break
 
-    if len(merged) < k and not vector_results:
-        # If no strong vector matches are available, allow the top keyword hits.
-        merged = keyword_results[:k]
-
     merged.sort(key=lambda x: x["score"], reverse=True)
     results = merged[:k]
 
-    # Fallback to top vector chunks regardless of threshold if we got 0 results
+    # Hard fallback: if still nothing, take best raw vector results
     if not results and all_vector_results:
-        results = all_vector_results[:3]
-        print(f"[vector_store] RAG Fallback: returned top {len(results)} chunks below threshold.")
+        results = sorted(all_vector_results, key=lambda x: x["score"], reverse=True)[:3]
+        print(f"[vector_store] Hard fallback: {len(results)} chunks below all thresholds.")
 
     return results

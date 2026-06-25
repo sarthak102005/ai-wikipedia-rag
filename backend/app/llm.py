@@ -109,14 +109,30 @@ _MINIMAX_MODEL = "MiniMax-M3"
 # Prompt builder
 # ─────────────────────────────────────────
 
-def _build_prompt(context: str, question: str) -> str:
+def _build_prompt(context: str, question: str, conversation_history: list[dict] | None = None) -> str:
+    history_text = ""
+    if conversation_history:
+        history_lines = []
+        for entry in conversation_history[-6:]:
+            history_lines.append(f"User: {entry.get('question', '')}")
+            history_lines.append(f"Assistant: {entry.get('answer', '')}")
+        history_text = "\nCONVERSATION HISTORY (for resolving pronouns only — not a knowledge source):\n" + "\n".join(history_lines) + "\n"
+
     return (
-        "You are a Wikipedia-based QA assistant.\n"
-        "Answer using ONLY the context below. Be concise.\n"
-        "If the context contains tables or structured statistics, interpret them as numeric data and answer directly using those values.\n"
-        'If the answer is not present, say: "I couldn\'t find that information in the article."\n\n'
-        f"CONTEXT:\n{context}\n\n"
-        f"QUESTION: {question}"
+        "You are a Wikipedia-based QA assistant. Answer questions accurately using ONLY the provided Wikipedia context below.\n\n"
+        "RULES:\n"
+        "1. Search through ALL context sections carefully (separated by ---). The answer may be in any section.\n"
+        "2. For 'What is X?' or 'Who is X?' questions: give a clear, direct 1-3 sentence definition/introduction first, then add detail.\n"
+        "3. For numeric/statistical questions: extract the exact number from context and state it directly.\n"
+        "4. For table data: read the rows and columns carefully and compute or quote the answer.\n"
+        "5. For multi-part questions: address each part in sequence.\n"
+        "6. Use conversation history ONLY to resolve pronouns (he/she/it/they). Do NOT use it as a knowledge source.\n"
+        "7. Be concise but complete. Avoid padding. Do not start with 'Based on the context'.\n"
+        "8. If genuinely not found in ANY context section: say exactly \"I couldn't find that information in the article.\"\n"
+        f"{history_text}\n"
+        f"WIKIPEDIA CONTEXT (search ALL sections):\n{context}\n\n"
+        f"QUESTION: {question}\n"
+        f"ANSWER:"
     )
 
 
@@ -124,12 +140,12 @@ def _build_prompt(context: str, question: str) -> str:
 # Main entry point
 # ─────────────────────────────────────────
 
-def ask_llm(context: str, question: str) -> str:
+def ask_llm(context: str, question: str, conversation_history: list[dict] | None = None) -> str:
     """
     Try Groq -> Gemini 2.5 Flash -> OpenRouter -> MiniMax-M3 (in that order).
     Each provider is skipped gracefully if its API key is not configured.
     """
-    prompt = _build_prompt(context, question)
+    prompt = _build_prompt(context, question, conversation_history=conversation_history)
     messages = [{"role": "user", "content": prompt}]
 
     # ── Attempt 1: Groq Llama 3.3 70B ───────────────────────────────────────

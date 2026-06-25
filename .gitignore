@@ -4,3 +4,7 @@ __pycache__/
 .env
 backend/requirements.txt
 backend/.env
+backend/data/
+data/
+scratch/
+*.csv

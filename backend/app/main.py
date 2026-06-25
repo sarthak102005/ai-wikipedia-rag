@@ -8,6 +8,7 @@ from typing import Any
 
 from app.wikipedia_api import search_wikipedia
 from app.rag import run_rag
+from app.chat_store import get_messages, add_message, clear_messages
 
 app = FastAPI(title="AI Wikipedia RAG", version="3.0.0")
 
@@ -34,6 +35,7 @@ class AskRequest(BaseModel):
     title:    str = ""          # Article title — used as FAISS index key
     images:   list[Any] = []   # All page images — for semantic matching
     tables:   list[Any] = []   # Parsed Wikipedia tables — for structured indexing
+    conversation_history: list[dict] = []  # optional conversation history from client
 
 
 # ─────────────────────────────────────────
@@ -52,7 +54,44 @@ def search(request: SearchRequest):
 
 @app.post("/ask")
 def ask(request: AskRequest):
-    return run_rag(request.article, request.question, request.title, request.images, request.tables)
+    result = run_rag(request.article, request.question, request.title, request.images, request.tables, request.conversation_history)
+    # persist a lightweight chat entry (no heavy sources) for conversation history
+    try:
+        entry = {
+            "question": request.question,
+            "answer": result.get("answer", ""),
+            "confidence": result.get("confidence_score", 0.0),
+            "time": result.get("time", ""),
+        }
+        add_message(entry)
+    except Exception:
+        pass
+    return result
+
+
+@app.get("/chat")
+def chat_get():
+    return {"messages": get_messages()}
+
+
+class ChatPostRequest(BaseModel):
+    question: str
+    answer: str
+    confidence: float = 0.0
+    time: str = ""
+
+
+@app.post("/chat")
+def chat_post(request: ChatPostRequest):
+    entry = {"question": request.question, "answer": request.answer, "confidence": request.confidence, "time": request.time}
+    messages = add_message(entry)
+    return {"messages": messages}
+
+
+@app.delete("/chat")
+def chat_clear():
+    clear_messages()
+    return {"messages": []}
 
 
 # Serve static files from the built frontend directory
